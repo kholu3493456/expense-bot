@@ -12,7 +12,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from flask import Flask
 
-# Environment variables from Render
+# --- Environment Variables (Set in Render) ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Expenses")
@@ -62,9 +62,11 @@ CATEGORY_MAP = {
 def get_category(description: str) -> str:
     desc_lower = description.lower()
     
+    # Check for Income keywords
     if "income" in desc_lower or "salary" in desc_lower or "paycheck" in desc_lower:
         return "Income"
         
+    # Check the category map
     for keyword, category in CATEGORY_MAP.items():
         if keyword in desc_lower:
             return category
@@ -218,7 +220,8 @@ def run_bot():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_transaction))
     
     logging.info("Bot is polling...")
-    application.run_polling()
+    # The fix for the thread crash:
+    application.run_polling(stop_signals=None)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
