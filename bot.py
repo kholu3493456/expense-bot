@@ -11,6 +11,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from dotenv import load_dotenv
 from flask import Flask
 import threading
+
 # Load environment variables
 load_dotenv()
 
@@ -19,11 +20,20 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Expenses")
 
 # Google Sheets Setup
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+import json # Add this at the top of your file with the other imports
+
+# Google Sheets Setup
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+
+# Load credentials from the environment variable instead of the file
+creds_json = os.getenv("GOOGLE_CREDENTIALS")
+if creds_json:
+    creds_dict = json.loads(creds_json)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+else:
+    # Fallback to the file if you are running locally
+    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+
 client = gspread.authorize(creds)
 sheet = client.open(SHEET_NAME).sheet1
 
@@ -131,4 +141,3 @@ if __name__ == "__main__":
     # Start the web server to keep Render happy
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-    main()
