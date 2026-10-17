@@ -1,6 +1,8 @@
 import os
 import re
+import json
 import logging
+import threading
 from datetime import datetime
 from collections import defaultdict
 
@@ -10,28 +12,33 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
 from flask import Flask
-import threading
 
-# Load environment variables
+# Load environment variables (for local testing)
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Expenses")
 
-# Google Sheets Setup
-import json # Add this at the top of your file with the other imports
+# --- Google Sheets Setup ---
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
-# Google Sheets Setup
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-
-# Load credentials from the environment variable instead of the file
-creds_json = os.getenv("GOOGLE_CREDENTIALS")
-if creds_json:
-    creds_dict = json.loads(creds_json)
+# 1. Try Render Secret File first
+creds_path = "/etc/secrets/google-credentials.json"
+# 2. Fallback to Environment Variable (useful for other hosts or testing)
+# 3. Fallback to local file (for your laptop)
+if os.path.exists(creds_path):
+    logging.info("Loading credentials from Render Secret File...")
+    creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+elif os.getenv("GOOGLE_CREDENTIALS"):
+    logging.info("Loading credentials from Environment Variable...")
+    creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 else:
-    # Fallback to the file if you are running locally
+    logging.info("Loading credentials from local credentials.json file...")
     creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
 
 client = gspread.authorize(creds)
@@ -44,7 +51,7 @@ try:
 except Exception as e:
     logging.error(f"Sheet header error: {e}")
 
-# Simple Category Parser
+# --- Simple Category Parser ---
 CATEGORY_MAP = {
     "lunch": "Food", "dinner": "Food", "coffee": "Food", "groceries": "Food", "restaurant": "Food",
     "taxi": "Transport", "uber": "Transport", "bus": "Transport", "train": "Transport", "fuel": "Transport",
@@ -58,7 +65,7 @@ def get_category(description: str) -> str:
             return category
     return "Other"
 
-# Handlers
+# --- Telegram Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hello! Send me a message like `12.50 lunch` to log an expense.\n\n"
@@ -115,8 +122,7 @@ async def month_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     report += f"---\n**Total: {sum(totals.values()):.2f}**"
     await update.message.reply_text(report, parse_mode="Markdown")
 
-# Main Application
-# Add this right above def main()
+# --- Web Server & Bot Threading (Render Trick) ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -124,7 +130,6 @@ def home():
     return "Bot is alive!"
 
 def run_bot():
-    # This is your existing main() logic
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("month", month_report))
@@ -133,7 +138,6 @@ def run_bot():
     logging.info("Bot is polling...")
     application.run_polling()
 
-# Replace your old if __name__ == "__main__": block with this
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     # Start the Telegram bot in a background thread
