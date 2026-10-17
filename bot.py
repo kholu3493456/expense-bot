@@ -9,7 +9,8 @@ from google.oauth2.service_account import Credentials
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
-
+from flask import Flask
+import threading
 # Load environment variables
 load_dotenv()
 
@@ -105,16 +106,29 @@ async def month_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(report, parse_mode="Markdown")
 
 # Main Application
-def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+# Add this right above def main()
+app = Flask(__name__)
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("month", month_report))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_expense))
+@app.route('/')
+def home():
+    return "Bot is alive!"
 
+def run_bot():
+    # This is your existing main() logic
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("month", month_report))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_expense))
+    
     logging.info("Bot is polling...")
-    app.run_polling()
+    application.run_polling()
 
+# Replace your old if __name__ == "__main__": block with this
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    # Start the Telegram bot in a background thread
+    threading.Thread(target=run_bot, daemon=True).start()
+    # Start the web server to keep Render happy
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
     main()
