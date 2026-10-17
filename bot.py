@@ -10,23 +10,21 @@ import gspread
 from google.oauth2.service_account import Credentials
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from dotenv import load_dotenv
 from flask import Flask
 
-# Load environment variables (for local testing)
-load_dotenv()
-
+# Environment variables from Render
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID"))
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Expenses")
 
-# --- Google Sheets Setup ---
+# --- Google Sheets Setup (Cloud Only) ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
 creds_path = "/etc/secrets/google-credentials.json"
+
 if os.path.exists(creds_path):
     logging.info("Loading credentials from Render Secret File...")
     creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
@@ -35,8 +33,8 @@ elif os.getenv("GOOGLE_CREDENTIALS"):
     creds_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 else:
-    logging.info("Loading credentials from local credentials.json file...")
-    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+    logging.error("CRITICAL: No Google credentials found! Add them to Render.")
+    exit(1)
 
 client = gspread.authorize(creds)
 sheet = client.open(SHEET_NAME).sheet1
@@ -64,11 +62,9 @@ CATEGORY_MAP = {
 def get_category(description: str) -> str:
     desc_lower = description.lower()
     
-    # Check for Income keywords first
     if "income" in desc_lower or "salary" in desc_lower or "paycheck" in desc_lower:
         return "Income"
         
-    # Check the map
     for keyword, category in CATEGORY_MAP.items():
         if keyword in desc_lower:
             return category
@@ -106,7 +102,6 @@ async def log_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
     
-    # Regex expects: [amount] [description]
     match = re.match(r"^(?:(?:rs\.?|inr|₹|\$|€|£)\s*)?(\d+(?:\.\d{1,2})?)\s+(.{1,100})$", text, re.IGNORECASE)
 
     if not match:
@@ -121,7 +116,6 @@ async def log_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         sheet.append_row([today, update.effective_user.id, amount, description, category])
         
-        # Reply differently based on whether it's Income or Expense
         if category == "Income":
             await update.message.reply_text(f"💰 Logged Income: **{description}** for **{amount:.2f}**", parse_mode="Markdown")
         else:
@@ -147,7 +141,6 @@ async def month_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"📭 No transactions logged for {current_month} yet.")
         return
 
-    # Separate income from expenses
     income = totals.pop("Income", 0.0)
     total_expenses = sum(totals.values())
 
@@ -222,7 +215,6 @@ def run_bot():
     application.add_handler(CommandHandler("month", month_report))
     application.add_handler(CommandHandler("today", today_report))
     application.add_handler(CommandHandler("undo", undo))
-    # Renamed to log_transaction to reflect that it handles income too
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_transaction))
     
     logging.info("Bot is polling...")
